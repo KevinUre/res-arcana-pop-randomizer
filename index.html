@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Res Arcana Place of Power Randomizer</title>
+    <style>
+      body {
+        max-width: 36rem;
+        margin: 0 auto;
+        padding: 1rem;
+        font-family: system-ui, sans-serif;
+        line-height: 1.4;
+      }
+
+      h1 {
+        font-size: 1.5rem;
+      }
+
+      #weights {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 5rem;
+        gap: 0.5rem 1rem;
+        align-items: center;
+      }
+
+      input,
+      button {
+        box-sizing: border-box;
+        min-height: 2.75rem;
+        font: inherit;
+      }
+
+      input {
+        width: 100%;
+        padding: 0.5rem;
+      }
+
+      button {
+        width: 100%;
+        margin-top: 1.25rem;
+        padding: 0.6rem 1rem;
+        cursor: pointer;
+      }
+
+      #output {
+        min-height: 3rem;
+      }
+
+      #output[role="alert"] {
+        color: #a40000;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Res Arcana Place of Power Randomizer</h1>
+
+      <form id="randomizer">
+        <div id="weights"></div>
+        <button type="submit">Generate set</button>
+      </form>
+
+      <h2>Selected places</h2>
+      <div id="output" aria-live="polite">Press “Generate set” to begin.</div>
+    </main>
+
+    <script>
+      const pairs = {
+        "Elvish Heartwood": "Dwarven Forge",
+        "Dwarven Forge": "Elvish Heartwood",
+        "Cursed Forge": "Dwarven Mines",
+        "Dwarven Mines": "Cursed Forge",
+        "Gates of Hell": "Temple of the Abyss",
+        "Temple of the Abyss": "Gates of Hell",
+        "Dragon Aerie": "Crystal Keep",
+        "Crystal Keep": "Dragon Aerie",
+        "Sacred Grove": "Alchemist's Tower",
+        "Alchemist's Tower": "Sacred Grove",
+        "Sacrificial Pit": "Catacombs of the Dead",
+        "Catacombs of the Dead": "Sacrificial Pit",
+        "Dragon's Lair": "Sorcerer's Bestiary",
+        "Sorcerer's Bestiary": "Dragon's Lair",
+        "Sunken Reef": "Coral Castle",
+        "Coral Castle": "Sunken Reef",
+        "Mystical Menagerie": "Alchemical Workshop",
+        "Alchemical Workshop": "Mystical Menagerie",
+        "Blood Isle": "Pearl Bed",
+        "Pearl Bed": "Blood Isle",
+        "Druid Circle": "Dragon's Cave",
+        "Dragon's Cave": "Druid Circle"
+      };
+
+      const weights = {
+        "Elvish Heartwood": 10,
+        "Dwarven Forge": 10,
+        "Cursed Forge": 1,
+        "Dwarven Mines": 10,
+        "Gates of Hell": 10,
+        "Temple of the Abyss": 10,
+        "Dragon Aerie": 10,
+        "Crystal Keep": 5,
+        "Sacred Grove": 1,
+        "Alchemist's Tower": 0,
+        "Sacrificial Pit": 1,
+        "Catacombs of the Dead": 10,
+        "Dragon's Lair": 5,
+        "Sorcerer's Bestiary": 3,
+        "Sunken Reef": 10,
+        "Coral Castle": 1,
+        "Mystical Menagerie": 10,
+        "Alchemical Workshop": 10,
+        "Blood Isle": 10,
+        "Pearl Bed": 10,
+        "Druid Circle": 10,
+        "Dragon's Cave": 10
+      };
+
+      const count = 5;
+      const weightsElement = document.querySelector("#weights");
+      const outputElement = document.querySelector("#output");
+
+      for (const [place, weight] of Object.entries(weights)) {
+        const id = `weight-${place.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+        const label = document.createElement("label");
+        const input = document.createElement("input");
+
+        label.htmlFor = id;
+        label.textContent = place;
+        input.id = id;
+        input.name = place;
+        input.type = "number";
+        input.min = "0";
+        input.step = "1";
+        input.value = weight;
+        input.required = true;
+        input.inputMode = "numeric";
+
+        weightsElement.append(label, input);
+      }
+
+      function select(currentWeights) {
+        const selections = [];
+        const workingSet = Object.keys(currentWeights);
+
+        for (let selectionNumber = 0; selectionNumber < count; selectionNumber++) {
+          const tickets = [];
+
+          for (const place of workingSet) {
+            for (let ticket = 0; ticket < currentWeights[place]; ticket++) {
+              tickets.push(place);
+            }
+          }
+
+          if (tickets.length === 0) {
+            throw new Error(`Not enough eligible places to select ${count}. Increase some zero weights.`);
+          }
+
+          const winner = tickets[Math.floor(Math.random() * tickets.length)];
+          selections.push(winner);
+
+          const winnerIndex = workingSet.indexOf(winner);
+          workingSet.splice(winnerIndex, 1);
+
+          const pairedIndex = workingSet.indexOf(pairs[winner]);
+          if (pairedIndex !== -1) {
+            workingSet.splice(pairedIndex, 1);
+          }
+        }
+
+        return selections;
+      }
+
+      document.querySelector("#randomizer").addEventListener("submit", (event) => {
+        event.preventDefault();
+
+        const formData = new FormData(event.currentTarget);
+        const currentWeights = {};
+
+        for (const place of Object.keys(weights)) {
+          const weight = Number(formData.get(place));
+
+          if (!Number.isInteger(weight) || weight < 0) {
+            outputElement.setAttribute("role", "alert");
+            outputElement.textContent = `${place} must have a non-negative whole-number weight.`;
+            return;
+          }
+
+          currentWeights[place] = weight;
+        }
+
+        try {
+          const list = document.createElement("ol");
+
+          for (const place of select(currentWeights)) {
+            const item = document.createElement("li");
+            item.textContent = place;
+            list.append(item);
+          }
+
+          outputElement.removeAttribute("role");
+          outputElement.replaceChildren(list);
+        } catch (error) {
+          outputElement.setAttribute("role", "alert");
+          outputElement.textContent = error.message;
+        }
+      });
+    </script>
+  </body>
+</html>
