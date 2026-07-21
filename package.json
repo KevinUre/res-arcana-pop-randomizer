@@ -1,0 +1,12 @@
+{
+  "name": "res-arcana-pop-randomizer",
+  "version": "1.0.0",
+  "description": "",
+  "main": "selector.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}
