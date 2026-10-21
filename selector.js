@@ -49,7 +49,17 @@ const defaultMaximums = {
 };
 
 const count = 5;
-const storageKey = "res-arcana-place-of-power-ticket-counts-v1";
+const currentStorageKey = "res-arcana-place-of-power-ticket-counts-v1";
+const maximumStorageKey = "res-arcana-place-of-power-maximums-v1";
+
+function reconcileMaximums(storedMaximums) {
+  const maximums = {};
+  for (const [place, defaultMaximum] of Object.entries(defaultMaximums)) {
+    const stored = storedMaximums?.[place];
+    maximums[place] = Number.isSafeInteger(stored) && stored >= 0 ? stored : defaultMaximum;
+  }
+  return maximums;
+}
 
 function reconcileTicketCounts(maximums, storedCounts) {
   const counts = {};
@@ -107,26 +117,28 @@ function initializeBrowserApp() {
   const outputElement = document.querySelector("#output");
   const formElement = document.querySelector("#randomizer");
   const currentCountElements = {};
+  const maximumInputElements = {};
 
-  function readStoredTicketCounts() {
+  function readStoredValues(key) {
     try {
-      return JSON.parse(localStorage.getItem(storageKey));
+      return JSON.parse(localStorage.getItem(key));
     } catch {
       return null;
     }
   }
 
-  function saveTicketCounts(ticketCounts) {
+  function saveStoredValues(key, values) {
     try {
-      localStorage.setItem(storageKey, JSON.stringify(ticketCounts));
+      localStorage.setItem(key, JSON.stringify(values));
     } catch {
       // The randomizer still works when storage is unavailable.
     }
   }
 
-  let currentTickets = reconcileTicketCounts(defaultMaximums, readStoredTicketCounts());
+  let maximums = reconcileMaximums(readStoredValues(maximumStorageKey));
+  let currentTickets = reconcileTicketCounts(maximums, readStoredValues(currentStorageKey));
 
-  for (const [place, maximum] of Object.entries(defaultMaximums)) {
+  for (const place of Object.keys(defaultMaximums)) {
     const id = `maximum-${place.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
     const label = document.createElement("label");
     const input = document.createElement("input");
@@ -134,8 +146,19 @@ function initializeBrowserApp() {
 
     label.htmlFor = id;
     label.textContent = place;
-    Object.assign(input, { id, name: place, type: "number", min: "0", step: "1", value: maximum, required: true, inputMode: "numeric" });
+    Object.assign(input, {
+      id,
+      name: place,
+      type: "number",
+      min: "0",
+      step: "1",
+      value: maximums[place],
+      required: true,
+      inputMode: "numeric"
+    });
     input.setAttribute("aria-label", `${place} maximum tickets`);
+    maximumInputElements[place] = input;
+
     current.className = "ticket-count";
     current.textContent = currentTickets[place];
     current.setAttribute("aria-label", `${place} current tickets`);
@@ -143,21 +166,40 @@ function initializeBrowserApp() {
     weightsElement.append(label, input, current);
   }
 
+  function persistState() {
+    saveStoredValues(maximumStorageKey, maximums);
+    saveStoredValues(currentStorageKey, currentTickets);
+  }
+
   function renderCurrentTickets() {
-    for (const [place, tickets] of Object.entries(currentTickets)) currentCountElements[place].textContent = tickets;
+    for (const [place, tickets] of Object.entries(currentTickets)) {
+      currentCountElements[place].textContent = tickets;
+    }
   }
 
   function readMaximums() {
     const formData = new FormData(formElement);
-    const maximums = {};
+    const nextMaximums = {};
+
     for (const place of Object.keys(defaultMaximums)) {
-      const maximum = Number(formData.get(place));
-      if (!Number.isSafeInteger(maximum) || maximum < 0) {
+      const rawMaximum = formData.get(place);
+      const maximum = Number(rawMaximum);
+
+      if (rawMaximum === "" || !Number.isSafeInteger(maximum) || maximum < 0) {
         throw new Error(`${place} must have a non-negative whole-number maximum.`);
       }
-      maximums[place] = maximum;
+
+      nextMaximums[place] = maximum;
     }
-    return maximums;
+
+    return nextMaximums;
+  }
+
+  function applyMaximums(nextMaximums) {
+    maximums = nextMaximums;
+    currentTickets = reconcileTicketCounts(maximums, currentTickets);
+    persistState();
+    renderCurrentTickets();
   }
 
   function showError(error) {
@@ -165,22 +207,41 @@ function initializeBrowserApp() {
     outputElement.textContent = error.message;
   }
 
+  function showMessage(message) {
+    outputElement.removeAttribute("role");
+    outputElement.textContent = message;
+  }
+
+  persistState();
+
+  formElement.addEventListener("change", (event) => {
+    if (!event.target.matches("#weights input")) return;
+
+    try {
+      applyMaximums(readMaximums());
+    } catch (error) {
+      showError(error);
+    }
+  });
+
   formElement.addEventListener("submit", (event) => {
     event.preventDefault();
+
     try {
-      const maximums = readMaximums();
-      const eligibleTickets = reconcileTicketCounts(maximums, currentTickets);
-      const selections = select(eligibleTickets);
+      applyMaximums(readMaximums());
+      const selections = select(currentTickets);
       const list = document.createElement("ol");
 
-      currentTickets = updateTicketCounts(maximums, eligibleTickets, selections);
-      saveTicketCounts(currentTickets);
+      currentTickets = updateTicketCounts(maximums, currentTickets, selections);
+      persistState();
       renderCurrentTickets();
+
       for (const place of selections) {
         const item = document.createElement("li");
         item.textContent = place;
         list.append(item);
       }
+
       outputElement.removeAttribute("role");
       outputElement.replaceChildren(list);
     } catch (error) {
@@ -190,18 +251,37 @@ function initializeBrowserApp() {
 
   document.querySelector("#reset-tickets").addEventListener("click", () => {
     try {
-      currentTickets = readMaximums();
-      saveTicketCounts(currentTickets);
+      maximums = readMaximums();
+      currentTickets = { ...maximums };
+      persistState();
       renderCurrentTickets();
-      outputElement.removeAttribute("role");
-      outputElement.textContent = "All ticket counts have been reset to their maximums.";
+      showMessage("Current ticket counts have been reset to their maximums.");
     } catch (error) {
       showError(error);
     }
+  });
+
+  document.querySelector("#reset-maximums").addEventListener("click", () => {
+    maximums = { ...defaultMaximums };
+    for (const [place, maximum] of Object.entries(maximums)) {
+      maximumInputElements[place].value = maximum;
+    }
+    currentTickets = reconcileTicketCounts(maximums, currentTickets);
+    persistState();
+    renderCurrentTickets();
+    showMessage("Default maximum ticket values have been restored.");
   });
 }
 
 if (typeof document !== "undefined") initializeBrowserApp();
 if (typeof module !== "undefined") {
-  module.exports = { count, defaultMaximums, pairs, reconcileTicketCounts, select, updateTicketCounts };
+  module.exports = {
+    count,
+    defaultMaximums,
+    pairs,
+    reconcileMaximums,
+    reconcileTicketCounts,
+    select,
+    updateTicketCounts
+  };
 }
